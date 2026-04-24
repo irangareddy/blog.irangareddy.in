@@ -1,7 +1,7 @@
 ---
 title: "Why My AI Agents Were Stuck: Six Layers of Silent Failure"
 date: 2026-04-24
-tokens: "~5k"
+tokens: "~6k"
 description: "I ran 10 autonomous coding agents for weeks thinking they were working. They weren't. Here are the six compounding failures I found, from broken model auth to ghost issues on the project board."
 tags:
   - AI Agents
@@ -17,6 +17,8 @@ I run a multi-agent system with 10 AI coding agents — a project manager, four 
 For weeks, everything looked fine. Cron jobs showed `ok`. No crash alerts. The dashboard was green. But nothing was shipping. No PRs opened, no issues advancing, no specs drafted. The agents were running but producing zero output.
 
 I sat down to debug it and found six failures stacked on top of each other. Each one was silent. Each one would have been enough to block all progress on its own. Together, they made the system look alive while doing nothing.
+
+![Agent run outcomes before and after fixes](/public/images/openclaw-agents-stuck/before-after-runs.webp)
 
 ## Failure 1: The model didn't work
 
@@ -75,6 +77,10 @@ I checked the task history with `openclaw tasks list`. Forty consecutive runs ac
 
 **Lesson:** When you have standing orders in `AGENTS.md` and per-run instructions in cron messages, they will conflict. The cron message should reference the standing orders, not override them.
 
+I ran an iterative eval loop — checking agent behavior, scoring against autonomy criteria, fixing issues, and re-scoring. Four iterations to go from 25% to 75%:
+
+![Eval score progression across four debug iterations](/public/images/openclaw-agents-stuck/eval-progression.webp)
+
 ## Failure 4: The boot sequence asked "who am I?"
 
 When I messaged an agent through Discord, instead of responding to my question, it asked me to confirm its identity:
@@ -117,6 +123,8 @@ The pickup script correctly checked `state=="OPEN"`, so it skipped these. But th
 
 I also found eight items with contradictory state combinations: `Status=Todo` with `Execution Stage=Review`, `Status=In Progress` with `Execution Lock=Unlocked`, items locked at `Spec Drafted` stage where agents could only do spec work but couldn't advance to `Spec Approved` without human review — a dead-end loop.
 
+![Project board before and after cleanup](/public/images/openclaw-agents-stuck/board-before-after.webp)
+
 **Fix:** Updated all 24 closed issues to `Status=Done`. Fixed the eight state violations. Added a state integrity validation layer to the pickup script that rejects items with contradictory field combinations. Documented valid state transitions in the multi-agent policy.
 
 **Lesson:** Project boards are views, not source of truth. The source of truth is the issue state in the repo. Any automation that reads project fields must also verify the underlying issue state. And field combinations that seem impossible (Todo + Review, Locked + Done) will happen — your pickup logic needs to handle them gracefully rather than silently skipping them.
@@ -135,7 +143,9 @@ After:
   "Done — waterfall executed and progressed"
 ```
 
-The token efficiency analysis showed agents spending 91.3% of tokens on cached context (cheap) and only 0.8% on actual output. Each isolated cron run pays ~35K input tokens just for bootstrapping system prompt, AGENTS.md, SOUL.md, and workspace files. With four agents running 12 times daily, that's ~280K fresh input tokens per day on bootstrap alone. Custom sessions (which persist context across runs) would cut this significantly, but the current orchestrator only supports `isolated` sessions for cron jobs.
+The token efficiency analysis showed agents spending 91.3% of tokens on cached context (cheap) and only 0.8% on actual output.
+
+![Token distribution across 3.96M total tokens](/public/images/openclaw-agents-stuck/token-distribution.webp) Each isolated cron run pays ~35K input tokens just for bootstrapping system prompt, AGENTS.md, SOUL.md, and workspace files. With four agents running 12 times daily, that's ~280K fresh input tokens per day on bootstrap alone. Custom sessions (which persist context across runs) would cut this significantly, but the current orchestrator only supports `isolated` sessions for cron jobs.
 
 ## What I'd do differently
 
