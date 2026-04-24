@@ -71,7 +71,9 @@ I replaced the cron messages with a work priority waterfall: pickup, then PR mai
 
 The lesson: when you split instructions between standing orders and per-run prompts, they will conflict. The cron message should reference the standing orders, not override them.
 
-![Eval score progression across four debug iterations](/public/images/openclaw-agents-stuck/eval-progression.webp)
+I ran a simple eval loop through these fixes: check eight things (model auth, heartbeat, cron behavior, boot sequence, pickup filters, board state, context size, Discord stability), fix what's broken, check again. Four passes to get from half-broken to fully working.
+
+![Debug progress across four iterations](/public/images/openclaw-agents-stuck/eval-progression.webp)
 
 ## 4. The boot sequence asked "who am I?"
 
