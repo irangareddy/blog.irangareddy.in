@@ -1,8 +1,8 @@
 ---
-title: "Why My AI Agents Were Stuck: Six Layers of Silent Failure"
+title: "Why My AI Agents Were Stuck"
 date: 2026-04-24
-tokens: "~6k"
-description: "I ran 10 autonomous coding agents for weeks thinking they were working. They weren't. Here are the six compounding failures I found, from broken model auth to ghost issues on the project board."
+tokens: "~5.5k"
+description: "I ran 10 autonomous coding agents for weeks thinking they were working. They weren't. Six compounding silent failures, from broken model auth to ghost issues on the project board."
 tags:
   - AI Agents
   - Multi-Agent Systems
@@ -12,17 +12,17 @@ series: "OpenClaw"
 series_order: 1
 ---
 
-I run a multi-agent system with 10 AI coding agents — a project manager, four platform developers (Android, iOS, Web, Backend), and several specialists. They're orchestrated through a gateway with cron jobs, heartbeats, and Discord channels. Each agent picks issues from a GitHub Project board, implements features, opens PRs, and reports status.
+I run a multi-agent system with 10 AI coding agents. A project manager, four platform-specific developers, and several specialists. They pick issues from a GitHub Project board, implement features, open PRs, and report status through Discord. Cron jobs fire every two hours. Heartbeats pulse every thirty minutes.
 
-For weeks, everything looked fine. Cron jobs showed `ok`. No crash alerts. The dashboard was green. But nothing was shipping. No PRs opened, no issues advancing, no specs drafted. The agents were running but producing zero output.
+For weeks, everything looked fine. Cron jobs showed `ok`. No crash alerts. The dashboard was green. But nothing shipped. No PRs opened, no issues moved, no specs drafted.
 
-I sat down to debug it and found six failures stacked on top of each other. Each one was silent. Each one would have been enough to block all progress on its own. Together, they made the system look alive while doing nothing.
+I dug into it and found six failures stacked on top of each other. Every one was silent. Any single one would have blocked all progress. Together they made the system look alive while doing nothing.
 
 ![Agent run outcomes before and after fixes](/public/images/openclaw-agents-stuck/before-after-runs.webp)
 
-## Failure 1: The model didn't work
+## 1. The model didn't work
 
-The first thing I checked was the gateway error log.
+The gateway error log:
 
 ```
 embedded run agent end: isError=true model=gpt-5.2-codex
@@ -30,42 +30,36 @@ error: "The 'gpt-5.2-codex' model is not supported when using
 Codex with a ChatGPT account."
 ```
 
-Every agent had `gpt-5.2-codex` hardcoded as its model. This model didn't work with our auth method. The gateway config had fallbacks defined at the defaults level, but each agent's per-agent `model` field overrode the defaults. So the fallback chain never kicked in.
+Every agent had `gpt-5.2-codex` hardcoded. The gateway config had fallbacks at the defaults level, but per-agent `model` fields override defaults entirely. The fallback chain never kicked in.
 
-The cron scheduler reported `ok` because the job technically completed — it just completed with an error that the agent couldn't generate a response. The status check didn't distinguish between "agent ran and did work" and "agent crashed immediately."
+The cron scheduler still reported `ok` because the job completed. It just completed with an error. The status check didn't distinguish "agent ran and did work" from "agent crashed immediately."
 
-**Fix:** Changed all six active agents to `gpt-5.3-codex`, which worked with our auth.
+I switched all six active agents to `gpt-5.3-codex`. Per-agent model overrides bypass default fallback chains. If you set `model` on individual agents, set fallbacks there too.
 
-**Lesson:** Per-agent model overrides bypass default fallback chains. If you set `model` on individual agents, the `defaults.model.fallbacks` array is ignored for those agents. Either set fallbacks per-agent too, or don't override the default model.
-
-## Failure 2: Heartbeats were disabled
-
-The gateway status showed:
+## 2. Heartbeats were disabled
 
 ```
-Heartbeat: disabled (main), disabled (beet-android-dev),
-disabled (beet-web-dev), disabled (beet-ios-dev), ...
+Heartbeat: disabled (main), disabled (android-dev),
+disabled (web-dev), disabled (ios-dev), ...
 ```
 
-Every agent had `heartbeat: { "every": "0m" }` — disabled. I set the default to `"30m"`, but heartbeats stayed off. The documentation explained why: "When any agent defines `heartbeat`, only those agents run heartbeats." Three utility agents had explicit `"0m"` overrides, and their existence caused the gateway to ignore the defaults for all other agents.
+Every agent had `heartbeat: { "every": "0m" }`. I set the default to `"30m"`, but heartbeats stayed off. The docs explained why: "When any agent defines `heartbeat`, only those agents run heartbeats." Three utility agents had explicit `"0m"` overrides, and their existence caused the gateway to ignore the defaults for everyone else.
 
-**Fix:** Removed all per-agent heartbeat overrides. Set `agents.defaults.heartbeat.every: "30m"` with `lightContext: true` and `isolatedSession: true` for cost control.
+I removed all per-agent heartbeat overrides. In OpenClaw's config, per-agent fields don't merge with defaults. They replace them. One agent with an explicit heartbeat config switches the entire system from "defaults for everyone" to "only explicit agents."
 
-**Lesson:** In OpenClaw's config, per-agent fields don't merge with defaults — they replace them. One agent with an explicit heartbeat config switches the entire system from "use defaults for everyone" to "only agents with explicit configs get heartbeats."
+## 3. Cron messages contradicted agent instructions
 
-## Failure 3: Cron messages contradicted agent instructions
-
-Each agent's `AGENTS.md` file said:
+Each agent's `AGENTS.md` said:
 
 > If `picked=false`, proactively draft missing scoped work and create one actionable issue with acceptance criteria.
 
-But the cron job `payload.message` said:
+The cron job message said:
 
 > If picked=false, end quietly.
 
-The cron message wins. It's the direct instruction for that turn. The agent reads `AGENTS.md` as background context, but the cron payload is the actual prompt. So agents received their work instructions, saw "end quietly," and complied.
+The cron message wins. It's the direct prompt for that turn. `AGENTS.md` is background context. So agents saw "end quietly" and complied.
 
-I checked the task history with `openclaw tasks list`. Forty consecutive runs across all agents said variations of:
+The task history confirmed it. Forty consecutive runs:
 
 ```
 "No issue picked (picked=false). Ending quietly."
@@ -73,90 +67,83 @@ I checked the task history with `openclaw tasks list`. Forty consecutive runs ac
 "No issue picked. Ending run quietly."
 ```
 
-**Fix:** Replaced the cron messages with a "work priority waterfall" — a cascade of six tiers. If pickup finds nothing, check open PRs. If no PRs, check blocked issues. If nothing blocked, create an issue. If the lane is full, run quality checks. Only report idle if all tiers are exhausted.
+I replaced the cron messages with a work priority waterfall: pickup, then PR maintenance, then unblock, then lane refill, then quality checks. Agents only report idle if every tier is exhausted.
 
-**Lesson:** When you have standing orders in `AGENTS.md` and per-run instructions in cron messages, they will conflict. The cron message should reference the standing orders, not override them.
-
-I ran an iterative eval loop — checking agent behavior, scoring against autonomy criteria, fixing issues, and re-scoring. Four iterations to go from 25% to 75%:
+The lesson: when you split instructions between standing orders and per-run prompts, they will conflict. The cron message should reference the standing orders, not override them.
 
 ![Eval score progression across four debug iterations](/public/images/openclaw-agents-stuck/eval-progression.webp)
 
-## Failure 4: The boot sequence asked "who am I?"
+## 4. The boot sequence asked "who am I?"
 
-When I messaged an agent through Discord, instead of responding to my question, it asked me to confirm its identity:
+I messaged an agent through Discord. Instead of answering, it asked me to confirm its identity:
 
 > "Hey. I just came online. Who am I? Who are you?"
 
-Every agent workspace had a `BOOTSTRAP.md` file designed for first-time setup — an onboarding flow where the agent discovers its name, personality, and learns about its human. This made sense for initial configuration. But agents run in isolated cron sessions that start fresh each time. Every cron run was a "first time."
+Every agent workspace had a `BOOTSTRAP.md` designed for first-time setup. An onboarding flow where the agent discovers its name and learns about its human. Reasonable for initial config. But agents run in isolated cron sessions that start fresh each time. Every run was a first time.
 
-Six of ten `USER.md` files were blank templates with empty name and timezone fields. The agent would read `BOOTSTRAP.md`, see an empty `USER.md`, and conclude it hadn't been set up yet.
+Six of ten `USER.md` files were blank templates with empty fields. The agent read `BOOTSTRAP.md`, saw an empty `USER.md`, and concluded it hadn't been set up yet.
 
-**Fix:** Replaced all `BOOTSTRAP.md` files with operational boot instructions: "You are already configured. Read AGENTS.md and follow your standing orders. Never ask the human to confirm your identity." Populated all blank `USER.md` files.
+I replaced all `BOOTSTRAP.md` files with operational boot instructions: "You are already configured. Read your standing orders. Never ask the human to confirm your identity." Isolated sessions are amnesiac by design. Boot files for autonomous agents must be stateless.
 
-**Lesson:** Isolated sessions are amnesiac by design. Any file that assumes persistent state (like "this only runs once") will re-trigger on every session. Boot files for autonomous agents should be stateless and operational, not conversational.
+## 5. The pickup script filtered out all work
 
-## Failure 5: The pickup script filtered out all work
+After fixing the first four, agents started running but still found nothing. The pickup script returned `picked=false` for two platforms every time, despite the board showing 15 and 2 items as `Todo`.
 
-After fixing failures 1-4, agents started running but still couldn't find issues. The pickup script returned `picked=false` for Web and Backend every single time, despite the board showing 15 Web and 2 Backend items as `Todo`.
-
-The jq filter in the pickup script had:
+The jq filter:
 
 ```jq
 select(.status=="Todo" and .execution_stage!="Spec Drafted")
 ```
 
-It excluded `Spec Drafted` items — the stage where a spec exists but hasn't been approved yet. The intent was to prevent agents from picking items that need human review. But every Web Todo item was at `Spec Drafted`. Every Backend Todo item was at `Spec Drafted`. The filter made 100% of their work invisible.
+It excluded `Spec Drafted` items. But every Todo item on those platforms was `Spec Drafted`. The filter made 100% of their work invisible. The agents were supposed to be refining specs at that stage. The filter was preventing them from doing what they were built for.
 
-The agents were supposed to be the ones refining and advancing specs at this stage. The filter was protecting against the agents doing exactly what they were built to do.
+I removed the exclusion. The execution stage gate in the cron message already controls what agents do at each stage. Spec work on `Spec Drafted`, code only after `Spec Approved`.
 
-**Fix:** Removed the `Spec Drafted` exclusion. The execution stage gate in the cron message already handles what agents can and can't do at each stage — they'll do spec work on `Spec Drafted` items and only write code after `Spec Approved`.
+Filters compound. This script filtered by platform, status, lock state, blocked state, AND execution stage. Each filter was reasonable alone. Together, nothing passed through. When debugging empty results from a filter chain, remove one filter at a time.
 
-**Lesson:** Filters compound. The pickup script filtered by platform, status, lock state, blocked state, AND execution stage. Each filter seemed reasonable alone, but together they created a pipeline where nothing passed through. When debugging empty results from a filter chain, remove filters one at a time to find which one is the bottleneck.
+## 6. The board was lying
 
-## Failure 6: The board was lying
+The project board displayed 51 `Todo` items. The real number was 30.
 
-Even after fixing the pickup filter, some platforms showed phantom work. The project board displayed 51 `Todo` items. The actual number was 30.
+Twenty-four issues had been closed (PRs merged, manually resolved) but their project board `Status` field never updated. GitHub Projects doesn't auto-sync issue state with project fields. The board showed `Todo` for `CLOSED` issues.
 
-Twenty-four GitHub issues had been closed (PRs merged, manually resolved) but their project board `Status` field was never updated. GitHub Projects doesn't auto-sync issue state with project fields. So the board showed `Todo` for issues that were `CLOSED` in the repo.
+The pickup script checked `state=="OPEN"`, so it skipped these correctly. But the inflated count made it look like there was plenty of work. The PM agent's morning plan referenced phantom items, creating plans for work that couldn't be picked up.
 
-The pickup script correctly checked `state=="OPEN"`, so it skipped these. But the board's inflated count made it look like there was plenty of work when lanes were actually empty. The project manager agent's morning plan referenced these phantom items, creating plans for work that couldn't be picked up.
-
-I also found eight items with contradictory state combinations: `Status=Todo` with `Execution Stage=Review`, `Status=In Progress` with `Execution Lock=Unlocked`, items locked at `Spec Drafted` stage where agents could only do spec work but couldn't advance to `Spec Approved` without human review — a dead-end loop.
+I also found eight items with contradictory state: `Todo` with `Execution Stage=Review`. `In Progress` but `Unlocked`. Items locked at `Spec Drafted` where agents could only do spec work but couldn't advance past it. Dead-end loops.
 
 ![Project board before and after cleanup](/public/images/openclaw-agents-stuck/board-before-after.webp)
 
-**Fix:** Updated all 24 closed issues to `Status=Done`. Fixed the eight state violations. Added a state integrity validation layer to the pickup script that rejects items with contradictory field combinations. Documented valid state transitions in the multi-agent policy.
+I updated all 24 closed issues to `Done`, fixed the eight violations, added a state integrity layer to the pickup script, and documented valid transitions.
 
-**Lesson:** Project boards are views, not source of truth. The source of truth is the issue state in the repo. Any automation that reads project fields must also verify the underlying issue state. And field combinations that seem impossible (Todo + Review, Locked + Done) will happen — your pickup logic needs to handle them gracefully rather than silently skipping them.
+Project boards are views, not source of truth. The source of truth is issue state in the repo. Any automation reading project fields must also verify the underlying issue state.
 
 ## After
 
-With all six failures fixed, the task history changed:
+The task history:
 
 ```
-Before: "No issue picked. Ending quietly." (×40 consecutive runs)
+Before: "No issue picked. Ending quietly." (×40 runs)
 
 After:
-  "Picked (resumed): Beet-API#292 — Stage gate: Spec Drafted"
+  "Picked (resumed): issue #292, stage gate: Spec Drafted"
   "Executed waterfall through PR Maintenance"
-  "Waterfall executed, Backend task picked and advanced"
-  "Done — waterfall executed and progressed"
+  "Waterfall executed, one task picked and advanced"
 ```
 
-The token efficiency analysis showed agents spending 91.3% of tokens on cached context (cheap) and only 0.8% on actual output.
+The token analysis showed agents spending 91.3% of tokens on cached context and only 0.8% on actual output.
 
-![Token distribution across 3.96M total tokens](/public/images/openclaw-agents-stuck/token-distribution.webp) Each isolated cron run pays ~35K input tokens just for bootstrapping system prompt, AGENTS.md, SOUL.md, and workspace files. With four agents running 12 times daily, that's ~280K fresh input tokens per day on bootstrap alone. Custom sessions (which persist context across runs) would cut this significantly, but the current orchestrator only supports `isolated` sessions for cron jobs.
+![Token distribution across 3.96M total tokens](/public/images/openclaw-agents-stuck/token-distribution.webp)
+
+Each isolated cron run pays ~35K input tokens for bootstrapping. Four agents running 12 times daily means ~280K fresh input tokens per day just on bootstrap. Custom sessions would cut this, but the orchestrator currently only supports `isolated` for cron jobs.
 
 ## What I'd do differently
 
-If I were setting this up again:
+Start with one agent, not ten. Each agent multiplies the config surface. Get one reliably shipping before scaling.
 
-1. **Start with one agent, not ten.** Each agent multiplies the configuration surface. Get one agent reliably picking issues and opening PRs before adding more.
+Build state integrity checks before the first pickup, not after you find violations. The pickup script should validate and auto-heal the board before looking for work.
 
-2. **Build a state integrity check that runs before every pickup.** The pickup script should validate the board state and auto-heal violations before trying to find work. I added this after the fact — it should have been there from the start.
+Use the orchestrator's built-in observability. `openclaw tasks list` and `openclaw sessions --all-agents` had everything I needed. I spent time parsing trajectory files before finding these commands.
 
-3. **Use the orchestrator's built-in observability first.** `openclaw tasks list` and `openclaw sessions --all-agents` showed everything I needed. I spent time parsing trajectory files manually before discovering these commands existed.
+Test with `--dry-run` after every config change. The pickup script supports it. Run it per platform after every filter change.
 
-4. **Test with `--dry-run` after every config change.** The pickup script supports `--dry-run`. I should have run it for each platform after every filter change to verify agents could actually find work.
-
-5. **Don't split instructions across files.** Having standing orders in `AGENTS.md` and contradictory instructions in cron messages is a recipe for confusion. Put the authoritative instructions in one place and reference them from the other.
+Don't split authoritative instructions across files. Standing orders in `AGENTS.md` and contradictory prompts in cron messages will conflict. One source of truth, referenced by everything else.
