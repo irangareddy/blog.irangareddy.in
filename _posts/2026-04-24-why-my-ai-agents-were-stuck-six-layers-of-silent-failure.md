@@ -1,7 +1,7 @@
 ---
 title: "Why My AI Agents Were Stuck"
 date: 2026-04-24
-tokens: "~5.5k"
+tokens: "~5.8k"
 description: "I ran 10 autonomous coding agents for weeks thinking they were working. They weren't. Six compounding silent failures, from broken model auth to ghost issues on the project board."
 tags:
   - AI Agents
@@ -97,7 +97,7 @@ The jq filter:
 select(.status=="Todo" and .execution_stage!="Spec Drafted")
 ```
 
-It excluded `Spec Drafted` items. But every Todo item on those platforms was `Spec Drafted`. The filter made 100% of their work invisible. The agents were supposed to be refining specs at that stage. The filter was preventing them from doing what they were built for.
+It excluded `Spec Drafted` items. But every Todo item on those platforms was `Spec Drafted`. The filter hid every pickable item on those platforms. The agents were supposed to be refining specs at that stage. The filter was preventing them from doing what they were built for.
 
 I removed the exclusion. The execution stage gate in the cron message already controls what agents do at each stage. Spec work on `Spec Drafted`, code only after `Spec Approved`.
 
@@ -132,11 +132,11 @@ After:
   "Waterfall executed, one task picked and advanced"
 ```
 
-The token analysis showed agents spending 91.3% of tokens on cached context and only 0.8% on actual output.
+I pulled token usage from `openclaw sessions --all-agents`. Out of 3.96M tokens consumed across all runs, 91.3% were cache reads (the orchestrator reuses prompt prefix across calls), 7.9% were fresh input (system prompt, workspace files, cron message), and 0.8% were agent output (the actual work).
 
 ![Token distribution across 3.96M total tokens](/public/images/openclaw-agents-stuck/token-distribution.webp)
 
-Each isolated cron run pays ~35K input tokens for bootstrapping. Four agents running 12 times daily means ~280K fresh input tokens per day just on bootstrap. Custom sessions would cut this, but the orchestrator currently only supports `isolated` for cron jobs.
+The cache hit rate is good. The problem is the fresh input: each isolated cron run loads ~35K tokens of system prompt, AGENTS.md, SOUL.md, and workspace files from scratch. Four agents, 12 runs per day each, that's ~280K fresh input tokens daily just on context bootstrap. Persistent sessions across runs would eliminate most of that, but the orchestrator currently only supports isolated sessions for cron jobs.
 
 ## What I'd do differently
 
