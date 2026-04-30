@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OpenClaw — agents-stuck post charts (Vega-Lite preview)</title>
+<style>
+  :root { --bg: #000; --fg: #fff; --muted: #8a8a8a; --rule: #1a1a1a; }
+  html, body { background: var(--bg); color: var(--fg); margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+    padding: 48px 32px 96px;
+    max-width: 1100px; margin: 0 auto;
+  }
+  header { padding-bottom: 24px; border-bottom: 1px solid var(--rule); margin-bottom: 32px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 8px; }
+  header p { color: var(--muted); margin: 0; font-size: 14px; }
+  section { margin-top: 56px; }
+  h2 { font-size: 14px; font-weight: 500; color: var(--muted); margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .chart { background: var(--bg); padding: 8px 0; }
+  .vega-embed details { display: none; }
+  footer { margin-top: 80px; padding-top: 16px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 12px; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: #ccc; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/vega@5.30.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@5.21.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6.26.0"></script>
+</head>
+<body>
+<header>
+  <h1>OpenClaw — agents-stuck post charts</h1>
+  <p>Live preview of the four <code>specs.mjs</code> charts. Run <code>npm run render</code> to write SVGs into <code>public/images/openclaw-agents-stuck/</code>.</p>
+</header>
+
+<section><h2>1. Agent run outcomes — before vs after</h2><div id="c1" class="chart"></div></section>
+<section><h2>2. Debug progress across four iterations</h2><div id="c2" class="chart"></div></section>
+<section><h2>3. Project board — before vs after</h2><div id="c3" class="chart"></div></section>
+<section><h2>4. Where the 3.96M tokens went</h2><div id="c4" class="chart"></div></section>
+
+<footer>Specs live in <code>specs.mjs</code>. Edit them, refresh this page to preview, then re-run <code>npm run render</code> to update the static SVGs in the post.</footer>
+
+<script type="module">
+  import { spec1, spec2, spec3, spec4 } from "./specs.mjs";
+  const opts = { actions: false, renderer: "svg" };
+  vegaEmbed("#c1", spec1, opts);
+  vegaEmbed("#c2", spec2, opts);
+  vegaEmbed("#c3", spec3, opts);
+  vegaEmbed("#c4", spec4, opts);
+</script>
+</body>
+</html>

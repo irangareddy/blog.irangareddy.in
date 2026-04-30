@@ -18,7 +18,7 @@ For weeks, everything looked fine. Cron jobs showed `ok`. No crash alerts. The d
 
 I dug into it and found six failures stacked on top of each other. Every one was silent. Any single one would have blocked all progress. Together they made the system look alive while doing nothing.
 
-![Agent run outcomes before and after fixes](/public/images/openclaw-agents-stuck/before-after-runs.webp)
+![Agent run outcomes before and after fixes](/public/images/openclaw-agents-stuck/before-after-runs.svg)
 
 ## 1. The model didn't work
 
@@ -73,7 +73,7 @@ The lesson: when you split instructions between standing orders and per-run prom
 
 I ran a simple eval loop through these fixes: check eight things (model auth, heartbeat, cron behavior, boot sequence, pickup filters, board state, context size, Discord stability), fix what's broken, check again. Four passes to get from half-broken to fully working.
 
-![Debug progress across four iterations](/public/images/openclaw-agents-stuck/eval-progression.webp)
+![Debug progress across four iterations](/public/images/openclaw-agents-stuck/eval-progression.svg)
 
 ## 4. The boot sequence asked "who am I?"
 
@@ -113,7 +113,7 @@ The pickup script checked `state=="OPEN"`, so it skipped these correctly. But th
 
 I also found eight items with contradictory state: `Todo` with `Execution Stage=Review`. `In Progress` but `Unlocked`. Items locked at `Spec Drafted` where agents could only do spec work but couldn't advance past it. Dead-end loops.
 
-![Project board before and after cleanup](/public/images/openclaw-agents-stuck/board-before-after.webp)
+![Project board before and after cleanup](/public/images/openclaw-agents-stuck/board-before-after.svg)
 
 I updated all 24 closed issues to `Done`, fixed the eight violations, added a state integrity layer to the pickup script, and documented valid transitions.
 
@@ -134,7 +134,7 @@ After:
 
 I pulled token usage from `openclaw sessions --all-agents`. Out of 3.96M tokens consumed across all runs, 91.3% were cache reads (the orchestrator reuses prompt prefix across calls), 7.9% were fresh input (system prompt, workspace files, cron message), and 0.8% were agent output (the actual work).
 
-![Token distribution across 3.96M total tokens](/public/images/openclaw-agents-stuck/token-distribution.webp)
+![Token distribution across 3.96M total tokens](/public/images/openclaw-agents-stuck/token-distribution.svg)
 
 The cache hit rate is good. The problem is the fresh input: each isolated cron run loads ~35K tokens of system prompt, AGENTS.md, SOUL.md, and workspace files from scratch. Four agents, 12 runs per day each, that's ~280K fresh input tokens daily just on context bootstrap. Persistent sessions across runs would eliminate most of that, but the orchestrator currently only supports isolated sessions for cron jobs.
 

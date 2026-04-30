@@ -1,0 +1,13 @@
+{
+  "name": "openclaw-charts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "render": "node render.mjs"
+  },
+  "dependencies": {
+    "vega": "^5.30.0",
+    "vega-lite": "^5.21.0"
+  }
+}

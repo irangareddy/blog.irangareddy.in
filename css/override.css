@@ -5,6 +5,20 @@ body, p, li, a, span, div,
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }
 
+/* Center post images (figures, charts, screenshots) */
+.post-content p:has(> img) {
+  text-align: center !important;
+}
+.post-content img {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  margin-top: 24px;
+  margin-bottom: 24px;
+}
+
 /* Headings + nav: Space Mono */
 h1, h2, h3, h4, h5, h6,
 .site-title, .post-title, .page-link,
