@@ -27,7 +27,7 @@ export const baseConfig = {
   padding: { left: 8, right: 8, top: 8, bottom: 8 },
   title: {
     color: palette.fg, font: SANS, fontSize: 16, fontWeight: 600,
-    anchor: "start", offset: 12,
+    anchor: "middle", offset: 12,
   },
   view: { stroke: null },
   axis: {
@@ -42,7 +42,11 @@ export const baseConfig = {
     labelColor: palette.fg, titleColor: palette.fg,
     labelFont: SANS, titleFont: SANS,
     labelFontSize: 13, symbolType: "circle", symbolSize: 100,
-    orient: "top", titleOrient: "top", direction: "horizontal",
+    orient: "none", direction: "horizontal", titleOrient: "top",
+    legendY: -34,
+    // legendX is set per-spec via centeredLegend() because Vega-Lite has no
+    // native "center horizontally" option and legend pixel-width depends on
+    // entry labels.
   },
   header: {
     labelColor: palette.fg, labelFont: SANS, labelFontSize: 13,
@@ -51,6 +55,42 @@ export const baseConfig = {
   arc: { stroke: palette.divider, strokeWidth: 2 },
   bar: { stroke: palette.divider, strokeWidth: 1, cornerRadiusEnd: 4 },
 };
+
+// Helper: per-spec config that centers the legend horizontally above the chart.
+// Vega-Lite has no native "center the legend" option for orient: "top"; we use
+// orient: "none" with explicit legendX. Legend widths are measured from a prior
+// render — if you change a label or font, re-measure the <path class="background"
+// d="M0,0h{W}..."> in the rendered SVG and update the constants below.
+function centerLegend(chartWidth, legendWidth) {
+  return {
+    ...baseConfig,
+    legend: {
+      ...baseConfig.legend,
+      legendX: Math.round(chartWidth / 2 - legendWidth / 2),
+    },
+  };
+}
+
+// Helper: precompute centroid (x, y) for each donut slice so text labels sit
+// inside the right slice. Avoids a Vega-Lite quirk where the text mark's
+// radius/theta positioning uses the opposite x sign from the arc mark.
+function withDonutLabelPos(rows, valueField, labelRadius, cx, cy) {
+  const total = rows.reduce((s, d) => s + (d[valueField] || 0), 0);
+  if (!total) return rows.map(d => ({ ...d, label_x: cx, label_y: cy }));
+  let cum = 0;
+  return rows.map(d => {
+    const v = d[valueField] || 0;
+    const t0 = (cum / total) * 2 * Math.PI;
+    cum += v;
+    const t1 = (cum / total) * 2 * Math.PI;
+    const mid = (t0 + t1) / 2;
+    return {
+      ...d,
+      label_x: cx + labelRadius * Math.sin(mid),
+      label_y: cy - labelRadius * Math.cos(mid),
+    };
+  });
+}
 
 // Helper: stacked-bar text layer that places labels at the segment midpoint.
 // Vega-Lite's built-in `stack: "zero"` only gives top-of-segment, so we use an
@@ -85,7 +125,7 @@ const data1 = [
 
 export const spec1 = {
   "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-  config: baseConfig,
+  config: centerLegend(540, 367),  // legend width measured from prior render
   title: "Most runs went idle before the fixes",
   width: 540, height: 280,
   data: { values: data1 },
@@ -127,7 +167,7 @@ const data2 = [
 
 export const spec2 = {
   "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-  config: baseConfig,
+  config: centerLegend(540, 158),
   title: "8 checks → all green after four iterations",
   width: 540, height: 280,
   data: { values: data2 },
@@ -153,23 +193,37 @@ export const spec2 = {
 };
 
 // 3. Project board (faceted donut, before vs after) ---------------------------
+const facetW = 220, facetH = 220, donutLabelR = 80;
+const data3Before = withDonutLabelPos([
+  { phase: "Before", state: "Done",        n: 49, ord: 1 },
+  { phase: "Before", state: "Real Todo",   n: 27, ord: 2 },
+  { phase: "Before", state: "Ghost Todo",  n: 24, ord: 3 },
+  { phase: "Before", state: "In Progress", n:  5, ord: 4 },
+], "n", donutLabelR, facetW / 2, facetH / 2);
+const data3After = withDonutLabelPos([
+  { phase: "After", state: "Done",        n: 73, ord: 1 },
+  { phase: "After", state: "Real Todo",   n: 30, ord: 2 },
+  { phase: "After", state: "Ghost Todo",  n:  0, ord: 3 },
+  { phase: "After", state: "In Progress", n:  2, ord: 4 },
+], "n", donutLabelR, facetW / 2, facetH / 2);
+
 export const spec3 = {
   "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-  config: baseConfig,
+  // Faceted chart: 2 facets × 220 wide + ~20 spacing ≈ 460 total
+  config: centerLegend(460, 453),
   title: "Ghost Todos masked the real backlog",
-  data: { values: [
-    { phase: "Before", state: "Done",        n: 49, ord: 1 },
-    { phase: "Before", state: "Real Todo",   n: 27, ord: 2 },
-    { phase: "Before", state: "Ghost Todo",  n: 24, ord: 3 },
-    { phase: "Before", state: "In Progress", n:  5, ord: 4 },
-    { phase: "After",  state: "Done",        n: 73, ord: 1 },
-    { phase: "After",  state: "Real Todo",   n: 30, ord: 2 },
-    { phase: "After",  state: "Ghost Todo",  n:  0, ord: 3 },
-    { phase: "After",  state: "In Progress", n:  2, ord: 4 },
-  ]},
-  facet: { column: { field: "phase", type: "nominal", sort: ["Before", "After"], title: null } },
+  data: { values: [...data3Before, ...data3After] },
+  facet: {
+    column: {
+      field: "phase", type: "nominal",
+      sort: ["Before", "After"], title: null,
+      // Put "Before"/"After" labels below each donut so they don't collide
+      // with the top-mounted legend.
+      header: { labelOrient: "bottom", labelPadding: 8, labelFontSize: 13 },
+    },
+  },
   spec: {
-    width: 220, height: 220,
+    width: facetW, height: facetH,
     layer: [
       {
         mark: { type: "arc", innerRadius: 60, outerRadius: 100, padAngle: 0.01 },
@@ -187,12 +241,13 @@ export const spec3 = {
         },
       },
       {
-        transform: [{ filter: "datum.n > 0" }],
-        mark: { type: "text", radius: 80, fontSize: 13, fontWeight: 600, color: palette.label },
+        mark: { type: "text", fontSize: 13, fontWeight: 600 },
         encoding: {
-          theta: { field: "n", type: "quantitative", stack: true },
-          text:  { field: "n", type: "quantitative" },
-          order: { field: "ord", type: "quantitative" },
+          x: { field: "label_x", type: "quantitative", scale: null, axis: null },
+          y: { field: "label_y", type: "quantitative", scale: null, axis: null },
+          text:    { field: "n", type: "quantitative" },
+          color:   { value: palette.label },
+          opacity: { condition: { test: "datum.n > 0", value: 1 }, value: 0 },
         },
       },
     ],
@@ -200,47 +255,48 @@ export const spec3 = {
 };
 
 // 4. Token distribution (donut + center label + percent labels in slices) -----
+const tokenW = 320, tokenH = 320;
+const data4 = withDonutLabelPos([
+  { kind: "Cache read",   n: 3615480, pct: 91.3 },
+  { kind: "New input",    n:  312840, pct:  7.9 },
+  { kind: "Agent output", n:   31680, pct:  0.8 },
+], "n", 115, tokenW / 2, tokenH / 2)
+  .map(d => ({ ...d, label: d.pct.toFixed(1) + "%" }));
+
 export const spec4 = {
   "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
-  config: baseConfig,
+  config: centerLegend(320, 394),
   title: "91% of tokens were cache reads",
-  width: 320, height: 320,
+  width: tokenW, height: tokenH,
   layer: [
     {
-      data: { values: [
-        { kind: "Cache read",   n: 3615480, pct: 91.3 },
-        { kind: "New input",    n:  312840, pct:  7.9 },
-        { kind: "Agent output", n:   31680, pct:  0.8 },
-      ]},
-      mark: { type: "arc", innerRadius: 90, outerRadius: 140, padAngle: 0.01 },
-      encoding: {
-        theta: { field: "n", type: "quantitative", stack: true },
-        color: {
-          field: "kind", type: "nominal",
-          scale: {
-            domain: ["Cache read", "New input", "Agent output"],
-            range:  [palette.blue, palette.orange, palette.green],
+      data: { values: data4 },
+      layer: [
+        {
+          mark: { type: "arc", innerRadius: 90, outerRadius: 140, padAngle: 0.01 },
+          encoding: {
+            theta: { field: "n", type: "quantitative", stack: true },
+            color: {
+              field: "kind", type: "nominal",
+              scale: {
+                domain: ["Cache read", "New input", "Agent output"],
+                range:  [palette.blue, palette.orange, palette.green],
+              },
+              legend: { title: null },
+            },
           },
-          legend: { title: null },
         },
-      },
-    },
-    // Percent labels inside each slice (skip <2% so they don't overlap)
-    {
-      data: { values: [
-        { kind: "Cache read",   n: 3615480, pct: 91.3 },
-        { kind: "New input",    n:  312840, pct:  7.9 },
-        { kind: "Agent output", n:   31680, pct:  0.8 },
-      ]},
-      transform: [
-        { filter: "datum.pct >= 2" },
-        { calculate: "format(datum.pct, '.1f') + '%'", as: "label" },
+        {
+          mark: { type: "text", fontSize: 13, fontWeight: 600 },
+          encoding: {
+            x: { field: "label_x", type: "quantitative", scale: null, axis: null },
+            y: { field: "label_y", type: "quantitative", scale: null, axis: null },
+            text:    { field: "label", type: "nominal" },
+            color:   { value: palette.label },
+            opacity: { condition: { test: "datum.pct >= 2", value: 1 }, value: 0 },
+          },
+        },
       ],
-      mark: { type: "text", radius: 115, fontSize: 13, fontWeight: 600, color: palette.label },
-      encoding: {
-        theta: { field: "n", type: "quantitative", stack: true },
-        text:  { field: "label", type: "nominal" },
-      },
     },
     // Center label: big number
     {
